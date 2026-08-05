@@ -1,9 +1,6 @@
 import streamlit as st
-import matplotlib.pyplot as plt
 import pandas as pd
-import japanize_matplotlib  # 日本語文字化け対策
 import heapq
-import math
 
 st.set_page_config(
     page_title="ネットワークのルーティングとグラフ理論 - 情報Ⅰ",
@@ -18,7 +15,7 @@ class CustomGraph:
     def __init__(self, nodes):
         self.nodes = list(nodes)
         self.edges = {}  # (u, v): weight
-        
+
     def add_edge(self, u, v, weight):
         if u in self.nodes and v in self.nodes:
             self.edges[(u, v)] = weight
@@ -30,9 +27,6 @@ class CustomGraph:
 
     def has_edge(self, u, v):
         return (u, v) in self.edges
-
-    def get_weight(self, u, v):
-        return self.edges.get((u, v), None)
 
     def get_neighbors(self, node):
         neighbors = {}
@@ -79,7 +73,7 @@ def dijkstra(graph, start, goal, disabled_nodes=None):
     while curr is not None:
         path.append(curr)
         curr = previous_nodes.get(curr)
-    
+
     path.reverse()
 
     if path and path[0] == start:
@@ -112,20 +106,11 @@ if "G" not in st.session_state:
 if "disabled_nodes" not in st.session_state:
     st.session_state.disabled_nodes = set()
 
-# ノードの固定配置座標
-NODE_POSITIONS = {
-    "A": (0.1, 0.5),
-    "B": (0.4, 0.85),
-    "C": (0.6, 0.5),
-    "D": (0.4, 0.15),
-    "E": (0.9, 0.5)
-}
-
 G = st.session_state.G
 
 
 # ============================================================
-# matplotlib による自作ネットワーク描画関数 (networkx非使用)
+# Graphviz によるネットワーク描画関数 (matplotlib/networkx非使用)
 # ============================================================
 def edge_in_path(u, v, path):
     if not path or len(path) < 2:
@@ -135,65 +120,60 @@ def edge_in_path(u, v, path):
             return True
     return False
 
-def draw_network_custom(graph, disabled_nodes=None, highlight_path=None):
+def generate_dot_graph(graph, disabled_nodes=None, highlight_path=None):
+    """DOT言語形式でGraphviz用のグラフ定義を作成"""
     if disabled_nodes is None:
         disabled_nodes = set()
 
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    ax.set_xlim(-0.05, 1.05)
-    ax.set_ylim(-0.05, 1.05)
-    ax.axis("off")
+    dot_lines = [
+        'graph G {',
+        '  layout=neato;',
+        '  overlap=false;',
+        '  node [shape=circle, style=filled, fontname="sans-serif", fontcolor=white, width=0.8, fixedsize=true];',
+        '  edge [fontname="sans-serif", fontsize=10, penwidth=2];'
+    ]
 
-    # 1. 回線（エッジ）の描画
+    # 固定座標の配置定義（レイアウト崩れ防止）
+    positions = {
+        "A": "0,1!",
+        "B": "1.5,2!",
+        "C": "3,1!",
+        "D": "1.5,0!",
+        "E": "4.5,1!"
+    }
+
+    # 1. ノードの描画設定
+    for node in graph.nodes:
+        pos = positions.get(node, "")
+        pos_attr = f'pos="{pos}"' if pos else ""
+
+        if node in disabled_nodes:
+            label = f"{node}\\n(故障中)"
+            dot_lines.append(
+                f'  "{node}" [label="{label}", fillcolor="#BDC3C7", color="#E74C3C", penwidth=3, fontcolor="#7F8C8D", {pos_attr}];'
+            )
+        else:
+            dot_lines.append(
+                f'  "{node}" [label="{node}", fillcolor="#3498DB", color="#2980B9", {pos_attr}];'
+            )
+
+    # 2. エッジ（回線）の描画設定
     drawn_edges = set()
     for (u, v), weight in graph.edges.items():
         if (v, u) in drawn_edges:
             continue
         drawn_edges.add((u, v))
 
-        x1, y1 = NODE_POSITIONS[u]
-        x2, y2 = NODE_POSITIONS[v]
-
         is_highlighted = edge_in_path(u, v, highlight_path)
         color = "#E74C3C" if is_highlighted else "#BDC3C7"
-        linewidth = 3.5 if is_highlighted else 1.8
+        penwidth = "4.5" if is_highlighted else "2.0"
 
-        ax.plot([x1, x2], [y1, y2], color=color, linewidth=linewidth, zorder=1)
-
-        # コスト数値の表示（エッジの中央）
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        ax.text(
-            mx, my, f"コスト:{weight}", fontsize=8, color="#2C3E50",
-            ha="center", va="center",
-            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.85),
-            zorder=2
+        dot_lines.append(
+            f'  "{u}" -- "{v}" [label="コスト:{weight}", color="{color}", penwidth={penwidth}];'
         )
 
-    # 2. ルータ（ノード）の描画
-    for node in graph.nodes:
-        x, y = NODE_POSITIONS[node]
-        is_disabled = node in disabled_nodes
-
-        facecolor = "#BDC3C7" if is_disabled else "#3498DB"
-        edgecolor = "#E74C3C" if is_disabled else "#2980B9"
-
-        circle = plt.Circle((x, y), 0.06, facecolor=facecolor, edgecolor=edgecolor, linewidth=2, zorder=3)
-        ax.add_patch(circle)
-
-        ax.text(
-            x, y, node, fontsize=11, fontweight="bold",
-            color="#7F8C8D" if is_disabled else "white",
-            ha="center", va="center", zorder=4
-        )
-
-        if is_disabled:
-            ax.text(
-                x, y - 0.1, "⚠️ 故障中", fontsize=9, color="#E74C3C",
-                fontweight="bold", ha="center", va="center", zorder=4
-            )
-
-    fig.tight_layout()
-    return fig
+    dot_lines.append('}')
+    return "\n".join(dot_lines)
 
 
 # ============================================================
@@ -248,8 +228,8 @@ if page == "1. ルーティングの基本":
         - **重み（コスト）：** 通信の遅延・速度を表す数値
         """)
     with col2:
-        fig = draw_network_custom(G)
-        st.pyplot(fig)
+        dot_code = generate_dot_graph(G)
+        st.graphviz_chart(dot_code, use_container_width=True)
 
 
 # ============================================================
@@ -279,7 +259,7 @@ elif page == "2. グラフとデータ表現":
         col = cols[idx % 3]
         has_edge = G.has_edge(u, v)
         new_state = col.checkbox(f"接続 {u} - {v}", value=has_edge, key=f"edge_{u}_{v}")
-        
+
         if new_state and not has_edge:
             w = default_weights.get((u, v), default_weights.get((v, u), 2))
             G.add_edge(u, v, w)
@@ -294,13 +274,13 @@ elif page == "2. グラフとデータ表現":
 
     with col_left:
         st.subheader("🌐 ネットワーク図")
-        fig = draw_network_custom(G)
-        st.pyplot(fig)
+        dot_code = generate_dot_graph(G)
+        st.graphviz_chart(dot_code, use_container_width=True)
 
     with col_right:
         st.subheader("📊 隣接行列（Adjacency Matrix）とは？")
         st.markdown("行と列に各ノードを並べ、**接続している箇所のコスト**（繋がっていない場合は `0`）を入れた2次元の表です。")
-        
+
         matrix_df = pd.DataFrame(0, index=nodes, columns=nodes)
         for (u, v), w in G.edges.items():
             matrix_df.loc[u, v] = w
@@ -341,8 +321,8 @@ elif page == "3. 最短経路シミュレーション":
         else:
             st.error("❌ 送信元から宛先へ到達できるルートが存在しません（回線が切断されています）。")
 
-    fig = draw_network_custom(G, highlight_path=path)
-    st.pyplot(fig)
+    dot_code = generate_dot_graph(G, highlight_path=path)
+    st.graphviz_chart(dot_code, use_container_width=True)
 
 
 # ============================================================
@@ -376,11 +356,11 @@ elif page == "4. トラブルシューティング演習":
     with col1:
         disabled_str = ', '.join(sorted(st.session_state.disabled_nodes)) if st.session_state.disabled_nodes else 'なし'
         st.markdown(f"#### ネットワーク状態（故障中ルータ: `{disabled_str}`）")
-        
+
         path, cost = dijkstra(G, "A", "E", disabled_nodes=st.session_state.disabled_nodes)
 
-        fig = draw_network_custom(G, disabled_nodes=st.session_state.disabled_nodes, highlight_path=path)
-        st.pyplot(fig)
+        dot_code = generate_dot_graph(G, disabled_nodes=st.session_state.disabled_nodes, highlight_path=path)
+        st.graphviz_chart(dot_code, use_container_width=True)
 
     with col2:
         st.markdown("#### 経路の変化の観察 (A ➔ E)")
