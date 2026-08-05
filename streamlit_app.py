@@ -1,10 +1,9 @@
 import streamlit as st
 import pandas as pd
 import heapq
-import time
 
 st.set_page_config(
-    page_title="ルーティングテーブル - 体験型「情報Ⅰ」学習アプリ",
+    page_title="ルーティングテーブル - 高校「情報Ⅰ」学習アプリ",
     page_icon="🌐",
     layout="wide",
 )
@@ -24,6 +23,7 @@ class CustomGraph:
     def remove_node(self, node):
         if node in self.nodes:
             self.nodes.remove(node)
+            # 関連するエッジを削除
             keys_to_remove = [k for k in self.edges if k[0] == node or k[1] == node]
             for k in keys_to_remove:
                 del self.edges[k]
@@ -45,7 +45,7 @@ class CustomGraph:
         return neighbors
 
 def dijkstra(graph, start, goal, disabled_nodes=None):
-    """ダイクストラ法による最小コスト経路探索"""
+    """自作ダイクストラ法による最小コスト経路探索"""
     if disabled_nodes is None:
         disabled_nodes = set()
 
@@ -80,6 +80,7 @@ def dijkstra(graph, start, goal, disabled_nodes=None):
                 previous_nodes[neighbor] = current_node
                 heapq.heappush(pq, (distance, neighbor))
 
+    # 経路の復元
     path = []
     curr = goal
     while curr is not None:
@@ -94,7 +95,7 @@ def dijkstra(graph, start, goal, disabled_nodes=None):
         return None, float('inf')
 
 def bfs_shortest_hops(graph, start, goal, disabled_nodes=None):
-    """ホップ数（通過ルータ数）最小経路探索"""
+    """比較解説用：ホップ数（通過ルータ数）最小経路探索"""
     if disabled_nodes is None:
         disabled_nodes = set()
 
@@ -118,20 +119,6 @@ def bfs_shortest_hops(graph, start, goal, disabled_nodes=None):
                 new_path.append(neighbor)
                 queue.append(new_path)
     return None
-
-def generate_routing_table(graph, node, disabled_nodes=None):
-    """特定のルータが保持するルーティングテーブル（転送表）の生成"""
-    table = []
-    for dest in sorted(graph.nodes):
-        if dest == node:
-            continue
-        path, cost = dijkstra(graph, node, dest, disabled_nodes)
-        if path and len(path) >= 2:
-            next_hop = path[1]
-            table.append({"宛先": dest, "ネクストホップ (次に送るルータ)": next_hop, "総コスト": cost})
-        else:
-            table.append({"宛先": dest, "ネクストホップ (次に送るルータ)": "到達不可", "総コスト": "∞"})
-    return pd.DataFrame(table)
 
 
 # ============================================================
@@ -162,14 +149,11 @@ if "disabled" not in st.session_state:
 if "last_path" not in st.session_state:
     st.session_state.last_path = None
 
-if "current_packet_step" not in st.session_state:
-    st.session_state.current_packet_step = 0
-
 G = st.session_state.G
 
 
 # ============================================================
-# Graphviz による描画処理
+# Graphviz による描画処理 (1cm相当ノード & 動的エッジ太さ)
 # ============================================================
 def edge_in_path(u, v, path):
     if not path or len(path) < 2:
@@ -179,37 +163,32 @@ def edge_in_path(u, v, path):
             return True
     return False
 
-def generate_dot_graph(graph, disabled_nodes=None, highlight_path=None, active_node=None):
+def generate_dot_graph(graph, disabled_nodes=None, highlight_path=None):
     if disabled_nodes is None:
         disabled_nodes = set()
 
+    # width=0.4in ≒ 約1cm (72pt * 0.3937in ≒ 28pt ≒ 1cm)
     dot_lines = [
         'graph G {',
         '  layout=neato;',
         '  overlap=false;',
-        '  node [shape=circle, style=filled, fontname="sans-serif", fontcolor=white, width=0.45, fixedsize=true, fontsize=10];',
+        '  node [shape=circle, style=filled, fontname="sans-serif", fontcolor=white, width=0.4, fixedsize=true, fontsize=10];',
         '  edge [fontname="sans-serif", fontsize=9];'
     ]
 
-    # ノード描画
+    # ノード設定
     for node in sorted(graph.nodes):
         if node in disabled_nodes:
             label = f"{node}\\n(故障)"
             dot_lines.append(
                 f'  "{node}" [label="{label}", fillcolor="#BDC3C7", color="#C0392B", penwidth=2, fontcolor="#7F8C8D"];'
             )
-        elif node == active_node:
-            # パケット現在地を黄色に点灯
-            label = f"📦 {node}"
-            dot_lines.append(
-                f'  "{node}" [label="{label}", fillcolor="#F1C40F", color="#D35400", penwidth=3, fontcolor="#2C3E50"];'
-            )
         else:
             dot_lines.append(
                 f'  "{node}" [label="{node}", fillcolor="#3E6FA8", color="#2C4C70"];'
             )
 
-    # エッジ描画
+    # エッジ設定（コストに応じて太さを可変）
     drawn_edges = set()
     weights = list(graph.edges.values())
     w_min = min(weights) if weights else 1
@@ -222,6 +201,7 @@ def generate_dot_graph(graph, disabled_nodes=None, highlight_path=None, active_n
 
         is_highlighted = edge_in_path(u, v, highlight_path)
         
+        # コストに応じた線幅計算
         if w_max == w_min:
             penwidth = 2.5
         else:
@@ -242,10 +222,11 @@ def generate_dot_graph(graph, disabled_nodes=None, highlight_path=None, active_n
 
 
 # ============================================================
-# サイドバー：ネットワークの動的設計
+# 機能1: ネットワークの動的設計（サイドバー）
 # ============================================================
 st.sidebar.title("🛠️ ネットワーク設計")
 
+# ① ノード管理
 st.sidebar.header("① ルータ（ノード）管理")
 new_node = st.sidebar.text_input("新しいルータ名を入力", placeholder="例: R6")
 if st.sidebar.button("➕ ルータを追加", use_container_width=True):
@@ -270,6 +251,7 @@ if len(G.nodes) > 0:
 
 st.sidebar.divider()
 
+# ② エッジ管理
 st.sidebar.header("② 回線（エッジ）設定")
 if len(G.nodes) >= 2:
     sorted_nodes = sorted(list(G.nodes))
@@ -304,12 +286,15 @@ if len(G.nodes) >= 2:
                 G.remove_edge(u, v)
                 st.session_state.last_path = None
                 st.rerun()
+else:
+    st.sidebar.info("ルータを2つ以上追加すると回線を設定できます。")
 
 st.sidebar.divider()
 
+# ③ 故障設定
 st.sidebar.header("③ 故障シミュレーション")
 faulty = st.sidebar.multiselect(
-    "一時的に故障させるルータ",
+    "一時的に故障（無効化）させるルータ",
     options=sorted(list(G.nodes)),
     default=sorted(list(st.session_state.disabled & set(G.nodes))),
 )
@@ -320,190 +305,159 @@ if st.sidebar.button("🔄 初期構成にリセット", use_container_width=Tru
     st.session_state.G = init_default_graph()
     st.session_state.disabled = set()
     st.session_state.last_path = None
-    st.session_state.current_packet_step = 0
     st.rerun()
 
 
 # ============================================================
 # メイン画面表示
 # ============================================================
-st.title("🌐 ルーティングテーブル・ラボ")
-st.caption("高校「情報Ⅰ」体験型学習コンテンツ：グラフ理論とネットワークの論理")
+st.title("🌐 ルーティングテーブル")
+st.caption("高校「情報Ⅰ」学習コンテンツ：グラフ理論とネットワークの論理")
 
-# --- タブ構成による体験重視のデザイン ---
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🎨 1. ネットワーク可視化 & データ",
-    "📦 2. パケット配送アニメーション",
-    "🕹️ 3. 最短ルート発見ゲーム",
-    "🚨 4. トラブルシューティング"
-])
-
-
-# ============================================================
-# タブ 1: ネットワーク可視化 & 内部データ
-# ============================================================
-with tab1:
-    st.header("ネットワーク構成とルータ内部の記憶")
-    
-    col_graph, col_rt = st.columns([1.2, 1])
-    
-    with col_graph:
-        st.subheader("🌐 ネットワーク構成図")
-        dot_code = generate_dot_graph(G, st.session_state.disabled, st.session_state.last_path)
-        st.graphviz_chart(dot_code, use_container_width=True)
-        st.caption("※丸はルータ（直径約1cm相当）、線の太さは通信コスト（混雑度や遅延）を表します。")
-
-    with col_rt:
-        st.subheader("📋 ルータの「記憶」（ルーティングテーブル）")
-        st.markdown("選んだルータが**『どの目的地に届けるには、次にどこへ転送すべきか』**を示した表です。")
-        active_nodes = sorted([n for n in G.nodes if n not in st.session_state.disabled])
-        if active_nodes:
-            selected_r = st.selectbox("観察するルータを選択:", active_nodes, index=0)
-            rt_df = generate_routing_table(G, selected_r, st.session_state.disabled)
-            st.dataframe(rt_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("稼働中のルータがありません。")
-
-    st.divider()
-    
-    col_matrix, col_list = st.columns(2)
-    nodes_sorted = sorted(list(G.nodes))
-    
-    with col_matrix:
-        st.subheader("📊 隣接行列（Adjacency Matrix）")
-        st.markdown("プログラムが全対の繋がりを一括把握する2次元データ（0は非接続）。")
-        if nodes_sorted:
-            matrix = pd.DataFrame(0, index=nodes_sorted, columns=nodes_sorted)
-            for (u, v), w in G.edges.items():
-                matrix.loc[u, v] = w
-            st.dataframe(matrix, use_container_width=True)
-
-    with col_list:
-        st.subheader("📖 隣接リスト（Python辞書形式）")
-        st.markdown("各ルータが直接つながっている隣接機器とコストのリスト。")
-        adjacency_dict = {n: G.get_neighbors(n) for n in nodes_sorted}
-        st.code(repr(adjacency_dict), language="python")
-
-
-# ============================================================
-# タブ 2: パケット配送アニメーション
-# ============================================================
-with tab2:
-    st.header("📦 データパケットの旅（配送シミュレーション）")
-    st.markdown("送信元から宛先へ、ダイクストラ法で導かれた最小コスト経路を**パケット（📦）がどう通過していくか**体験できます。")
-
-    active_nodes = sorted([n for n in G.nodes if n not in st.session_state.disabled])
-    
-    if len(active_nodes) >= 2:
-        c1, c2 = st.columns(2)
-        sim_start = c1.selectbox("送信元ルータ", active_nodes, key="sim_start")
-        sim_goal = c2.selectbox("宛先ルータ", active_nodes, index=len(active_nodes)-1, key="sim_goal")
-
-        if sim_start == sim_goal:
-            st.warning("送信元と宛先には異なるルータを選択してください。")
-        else:
-            sim_path, sim_cost = dijkstra(G, sim_start, sim_goal, disabled_nodes=st.session_state.disabled)
-            
-            if sim_path:
-                st.success(f"🎯 計算された最適ルート: **{' ➔ '.join(sim_path)}** （総通信コスト: **{sim_cost}**）")
-
-                col_btn1, col_btn2, col_info = st.columns([1, 1, 2])
-                
-                # 自動アニメーション再生ボタン
-                if col_btn1.button("▶️ 自動配送アニメーション再生", use_container_width=True):
-                    placeholder = st.empty()
-                    for step_idx, current_node in enumerate(sim_path):
-                        dot_anim = generate_dot_graph(
-                            G, st.session_state.disabled, highlight_path=sim_path, active_node=current_node
-                        )
-                        with placeholder.container():
-                            st.subheader(f"ステップ {step_idx+1}/{len(sim_path)}: 現在地【 ルータ {current_node} 】")
-                            st.graphviz_chart(dot_anim, use_container_width=True)
-                        time.sleep(1.0)
-                    st.toast("🎉 パケットが無事に目的地へ届きました！", icon="📦")
-
-            else:
-                st.error("❌ 途中の回線が断絶しているため、パケットを配送できません。")
-    else:
-        st.warning("シミュレーションを行うには2つ以上の稼働中ルータが必要です。")
-
-
-# ============================================================
-# タブ 3: 最短ルート発見ゲーム
-# ============================================================
-with tab3:
-    st.header("🕹️ チャレンジ！人間 vs アルゴリズム")
-    st.markdown("コンピューター（ダイクストラ法）に頼らず、**あなた自身の暗算で「最小コスト」のルート**を見つけ出してみよう！")
-
-    active_nodes = sorted([n for n in G.nodes if n not in st.session_state.disabled])
-    if len(active_nodes) >= 3:
-        p_start = active_nodes[0]
-        p_goal = active_nodes[-1]
-
-        st.info(f"🚩 **お題:** ルータ **{p_start}** から ルータ **{p_goal}** までの最適ルートと最小コストを予想してください！")
-
-        correct_path, correct_cost = dijkstra(G, p_start, p_goal, disabled_nodes=st.session_state.disabled)
-
-        c_quiz1, c_quiz2 = st.columns(2)
-        user_cost_guess = c_quiz1.number_input("あなたが予想する合計コストは？", min_value=1, max_value=200, value=5)
-        
-        if st.button("🔍 答え合わせをする", type="primary", use_container_width=True):
-            if user_cost_guess == correct_cost:
-                st.balloons()
-                st.success(f"🎊 **大正解！** 正解の最小コストは **{correct_cost}** です！")
-                st.markdown(f"正解の経路: **{' ➔ '.join(correct_path)}**")
-            else:
-                st.error(f"❌ 残念！あなたの予想: {user_cost_guess} / 正解の最小コスト: **{correct_cost}**")
-                st.markdown(f"💡 正解の経路は **{' ➔ '.join(correct_path)}** でした。計算し直してみよう！")
-
-        # ホップ数 vs コストの学びポイント
-        hop_path = bfs_shortest_hops(G, p_start, p_goal, disabled_nodes=st.session_state.disabled)
-        if hop_path and hop_path != correct_path:
-            st.warning(
-                f"👁️ **直感のトラップ：** 通過するルータ数（ホップ数）だけで見ると "
-                f"`{' ➔ '.join(hop_path)}` が最少ですが、コストを合計すると"
-                f"迂回ルート `{' ➔ '.join(correct_path)}` の方が早くなります！"
-            )
-    else:
-        st.info("ゲームを行うには3つ以上のルータが必要です。")
-
-
-# ============================================================
-# タブ 4: トラブルシューティング実習
-# ============================================================
-with tab4:
-    st.header("🚨 障害検知と自動迂回（セルフヒーリング）")
-    st.markdown("サイドバーでルータを故障させると、ネットワークがどう変化するかを観察できます。")
-
-    if st.session_state.disabled:
-        st.error(f"🚨 **現在停止中の故障ルータ:** {', '.join(sorted(list(st.session_state.disabled)))}")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("故障前の正常な接続リスト")
-            st.code(repr({n: G.get_neighbors(n) for n in G.nodes}), language="python")
-
-        with col2:
-            st.subheader("故障発生後の新しい接続リスト")
-            active_adj = {n: G.get_neighbors(n) for n in active_nodes}
-            st.code(repr(active_adj), language="python")
-
-        st.success(
-            "💡 **学びのポイント:** ルータが故障すると、即座にマップ（接続リスト）から排除され、"
-            "各ルータは自動的に別のルート（迂回路）を再計算して通信を継続します。"
-        )
-    else:
-        st.info("👈 左側のサイドバーにある **「③ 故障シミュレーション」** からルータを選択して故障させてみてください！")
+st.markdown(
+    """
+    ネットワーク構造は、数学的には **「グラフ」** というモデルで表現されます。
+    通信機器（ルータ）は **頂点（ノード）**、通信回線は **辺（エッジ）**、回線の混雑度や遅延は **重み（通信コスト）** に対応します。
+    サイドバーでネットワークを自由に設計し、ルータが内部で保持するデータ表現と経路決定の仕組みを体験しましょう。
+    """
+)
 
 st.divider()
 
-# 教科書用語集
+# --- 機能2: 可視化セクション ---
+st.header("1. ネットワーク構成図と内部データ表現")
+
+col_graph, col_note = st.columns([2, 1])
+with col_graph:
+    dot_code = generate_dot_graph(G, st.session_state.disabled, st.session_state.last_path)
+    st.graphviz_chart(dot_code, use_container_width=True)
+
+with col_note:
+    st.markdown("**図の見方**")
+    st.markdown(
+        """
+        - **丸（ノード）**：ルータ（通信機器・直径約1cm）
+        - **線（エッジ）**：通信回線（太さはコストに比例）
+        - **数値**：通信コスト（重み）
+        - **灰色の丸**：故障中のルータ
+        - **赤色の線**：ダイクストラ法で導出された最小コスト経路
+        """
+    )
+
+nodes_sorted = sorted(list(G.nodes))
+col_matrix, col_list = st.columns(2)
+
+with col_matrix:
+    st.subheader("隣接行列（Adjacency Matrix）")
+    st.markdown("すべてのルータ対の接続とコストを表形式で保持します。（`0` は非接続を示します）")
+    if nodes_sorted:
+        matrix = pd.DataFrame(0, index=nodes_sorted, columns=nodes_sorted)
+        for (u, v), w in G.edges.items():
+            matrix.loc[u, v] = w
+        st.dataframe(matrix, use_container_width=True)
+    else:
+        st.info("ルータが存在しません。")
+
+with col_list:
+    st.subheader("隣接リスト（Python辞書形式）")
+    st.markdown("各ルータが「自分と直接繋がっている接続先とコスト」のペアとして記憶する『地図』の実体です。")
+    adjacency_dict = {
+        n: G.get_neighbors(n) for n in nodes_sorted
+    }
+    st.code(repr(adjacency_dict), language="python")
+
+st.divider()
+
+# --- 機能3: ルーティング・シミュレーション ---
+st.header("2. ルーティング・シミュレーション（ダイクストラ法）")
+st.markdown(
+    """
+    パケット（データのかたまり）を目的地まで送る際、ルータは **通信コストの合計が最小になる経路** を計算して転送します。
+    これを **ルーティング（経路制御）** と呼びます。
+    """
+)
+
+active_nodes = sorted([n for n in G.nodes if n not in st.session_state.disabled])
+if len(active_nodes) >= 2:
+    c1, c2, c3 = st.columns([1, 1, 1])
+    start = c1.selectbox("スタート（送信元ルータ）", active_nodes, key="start_node")
+    goal_default_idx = 1 if len(active_nodes) > 1 else 0
+    goal = c2.selectbox("ゴール（宛先ルータ）", active_nodes, index=goal_default_idx, key="goal_node")
+    calc = c3.button("🧭 最小コスト経路を計算", type="primary", use_container_width=True)
+
+    if calc:
+        if start == goal:
+            st.warning("スタートとゴールには異なるルータを選択してください。")
+            st.session_state.last_path = None
+        else:
+            path, cost = dijkstra(G, start, goal, disabled_nodes=st.session_state.disabled)
+            if path:
+                st.session_state.last_path = path
+                st.success(f"🎯 **最小コスト経路 (ダイクストラ法):** {' ➔ '.join(path)} （合計コスト: **{cost}**）")
+
+                # ホップ数（通過ルータ数）最小経路との比較
+                hop_path = bfs_shortest_hops(G, start, goal, disabled_nodes=st.session_state.disabled)
+                if hop_path and hop_path != path:
+                    hop_cost = sum(G.edges[(hop_path[i], hop_path[i+1])] for i in range(len(hop_path)-1))
+                    st.info(
+                        f"💡 **学習ポイント：** 通過するルータの数（ホップ数）だけで選ぶと "
+                        f"`{' ➔ '.join(hop_path)}` （合計コスト: {hop_cost}）となりますが、"
+                        f"ルーティングでは通信速度や遅延を考慮した**「合計コスト最小経路」**（`{' ➔ '.join(path)}`）が選ばれます。"
+                    )
+                else:
+                    st.info("💡 **学習ポイント：** 「通過ルータ数が最も少ない経路」と「合計コストが最小の経路」が一致しています。")
+            else:
+                st.error("❌ 経路が見つかりません。回線が切断されているか、故障中のルータにより遮断されています。")
+                st.session_state.last_path = None
+    st.caption("※計算された最短経路は、画面上部の「ネットワーク構成図」上に赤色の太線で表示されます。")
+else:
+    st.warning("経路計算を行うには、故障していないルータが2つ以上必要です。")
+
+st.divider()
+
+# --- 機能4: トラブルシューティング実習 ---
+st.header("3. トラブルシューティング実習（故障と自動迂回）")
+st.markdown(
+    """
+    サイドバーの「③ 故障シミュレーション」でルータを選択すると、その機器が故障停止した状態を模倣できます。
+    障害発生によって **隣接リスト（地図）がどのように自動更新され、迂回路が選ばれるか** を確認しましょう。
+    """
+)
+
+if st.session_state.disabled:
+    st.error(f"🚨 現在「故障中」のルータ： **{', '.join(sorted(list(st.session_state.disabled)))}**")
+
+    active_adjacency = {
+        n: G.get_neighbors(n) for n in active_nodes
+    }
+
+    colA, colB = st.columns(2)
+    with colA:
+        st.markdown("**故障前の全体隣接リスト**")
+        st.code(repr(adjacency_dict), language="python")
+    with colB:
+        st.markdown("**故障後の有効な隣接リスト**")
+        st.code(repr(active_adjacency), language="python")
+
+    st.caption(
+        "故障したルータとそれに繋がる回線が地図（隣接リスト）から即座に排除され、"
+        "ルーティングプロトコルが自動的に新しい地図をもとにバックアップルートを導き出します。"
+    )
+else:
+    st.info("現在、故障中のルータはありません。サイドバーの「③ 故障シミュレーション」からルータを故障させてみてください。")
+
+st.divider()
+
+# 情報Ⅰ 教科書用語集
 with st.expander("📘 高校「情報Ⅰ」重要用語解説"):
     st.markdown(
         """
-        - **ノード（頂点）**：ネットワーク上のルータや機器。
-        - **エッジ（辺）**：機器同士を結ぶ通信回線。
-        - **コスト（重み）**：通信速度や遅延・混雑度を考慮した数値。
-        - **ルーティングテーブル**：パケットをどの目的地へ送るために「次にどのルータ（ネクストホップ）へ渡すか」を記録した転送表。
-        - **ダイクストラ法**：スタートから各ノードまでの最小コスト経路を効率よく求めるアルゴリズム。
+        - **頂点（ノード）**：ネットワークに接続されたルータや端末などの通信機器。
+        - **辺（エッジ）**：ノード同士をつなぐ通信回線。
+        - **重み（通信コスト）**：回線の遅延時間、帯域幅（通信速度）、混雑状況などを数値化したもの。
+        - **隣接行列**：2次元配列（表）を用いて、全ノード間の接続関係とコストを一括管理するデータ構造。
+        - **隣接リスト**：各ノードが直結する隣のノードとコストの一覧（辞書構造）で保持するデータ構造。
+        - **ダイクストラ法**：スタート地点から目的地までの合計通信コストが最小になる経路を効率よく探すアルゴリズム。
+        - **ルーティング（経路制御）**：パケットを最適なルートへと中継・転送する制御のこと。
         """
+    )
