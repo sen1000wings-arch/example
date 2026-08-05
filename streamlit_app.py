@@ -136,7 +136,7 @@ def generate_routing_table(graph, node, disabled_nodes=None):
 
 
 # ============================================================
-# セッション状態の初期化とランダム生成 logic
+# セッション状態の初期化とランダム生成ロジック
 # ============================================================
 def init_default_graph():
     G = CustomGraph()
@@ -155,32 +155,35 @@ def init_default_graph():
     return G
 
 def generate_random_network():
-    """ノード・エッジ・通信コスト・故障ルータをランダムに設定"""
+    """
+    要件5: ノード（4箇所以上8箇所以下）、エッジ、通信コスト、
+    故障ルータ（1箇所以下）をランダムに設定
+    """
     G = CustomGraph()
-    node_count = random.randint(4, 7)
+    # ノード数: 4箇所以上 8箇所以下
+    node_count = random.randint(4, 8)
     nodes = [f"R{i+1}" for i in range(node_count)]
     for n in nodes:
         G.add_node(n)
     
-    # ネットワークが全域的に繋がる基礎木（Spanning Tree）を作成
+    # 全体を接続する全域木を作成（通信不能なノードを極力防ぐ）
     for i in range(1, node_count):
         target = random.choice(nodes[:i])
         cost = random.randint(1, 9)
         G.add_edge(nodes[i], target, cost)
     
-    # 迂回路となる追加エッジを設定
-    extra_edges = random.randint(2, 4)
+    # 迂回路となる追加エッジをランダム設定
+    extra_edges = random.randint(1, 3)
     for _ in range(extra_edges):
         u, v = random.sample(nodes, 2)
         if (v, u) not in G.edges and u != v:
             cost = random.randint(1, 9)
             G.add_edge(u, v, cost)
             
-    # ランダムに一部のルータを故障させる（全体の半分以下）
+    # 故障ルータ: 1箇所以下（0箇所または1箇所）
     disabled = set()
-    if random.choice([True, False]):
-        fault_count = random.randint(1, max(1, node_count // 3))
-        disabled = set(random.sample(nodes, fault_count))
+    if random.choice([True, False]):  # 50%の確率で1箇所故障発生
+        disabled = {random.choice(nodes)}
         
     return G, disabled
 
@@ -211,7 +214,7 @@ def generate_dot_graph(graph, disabled_nodes=None, highlight_path=None, active_n
     if disabled_nodes is None:
         disabled_nodes = set()
 
-    # width=0.4in ≒ 直径1cm
+    # width=0.4in (約1cm) でノードを描画
     dot_lines = [
         'graph G {',
         '  layout=neato;',
@@ -237,7 +240,7 @@ def generate_dot_graph(graph, disabled_nodes=None, highlight_path=None, active_n
                 f'  "{node}" [label="{node}", fillcolor="#3E6FA8", color="#2C4C70"];'
             )
 
-    # エッジ設定（コストに応じて太さを動的変更）
+    # エッジ設定（コストに応じて太さを動的変化）
     drawn_edges = set()
     weights = list(graph.edges.values())
     w_min = min(weights) if weights else 1
@@ -274,16 +277,17 @@ def generate_dot_graph(graph, disabled_nodes=None, highlight_path=None, active_n
 # ============================================================
 st.sidebar.title("🛠️ ネットワーク設計")
 
-# 機能5. ランダム生成機能
+# 機能5: ランダム生成機能
 st.sidebar.header("🎲 ランダム構成生成")
 if st.sidebar.button("🎲 ランダムに生成する", use_container_width=True, type="primary"):
     st.session_state.G, st.session_state.disabled = generate_random_network()
     st.session_state.last_path = None
     st.rerun()
+st.sidebar.caption("※ノード数:4〜8箇所、故障:1箇所以下で生成します。")
 
 st.sidebar.divider()
 
-# 機能1. 動的設計（ノード追加・削除、エッジ設定）
+# 機能1: ノードの追加・削除
 st.sidebar.header("① ルータ（ノード）の管理")
 new_node = st.sidebar.text_input("追加するルータ名", placeholder="例: R6")
 if st.sidebar.button("➕ ルータを追加", use_container_width=True):
@@ -308,6 +312,7 @@ if len(G.nodes) > 0:
 
 st.sidebar.divider()
 
+# 機能1: エッジ（回線）設定
 st.sidebar.header("② 回線（エッジ）と通信コストの設定")
 if len(G.nodes) >= 2:
     sorted_nodes = sorted(list(G.nodes))
@@ -315,7 +320,7 @@ if len(G.nodes) >= 2:
         "接続する2つのルータを選択", options=sorted_nodes, max_selections=2, key="multiselect_nodes"
     )
     cost = st.sidebar.number_input(
-        "通信コスト（重み・混雑度）", min_value=1, max_value=100, value=1, step=1
+        "通信コスト（重み）", min_value=1, max_value=100, value=1, step=1
     )
     if st.sidebar.button("🔗 回線を接続・更新", use_container_width=True):
         if len(nodes_selected) == 2:
@@ -347,7 +352,7 @@ if len(G.nodes) >= 2:
 
 st.sidebar.divider()
 
-# 機能4 (一部): トラブルシューティング（故障設定）
+# 機能4 (設定部): トラブルシューティング（故障設定）
 st.sidebar.header("③ 故障シミュレーション（無効化）")
 faulty = st.sidebar.multiselect(
     "無効化（故障）させるルータ",
@@ -357,7 +362,7 @@ faulty = st.sidebar.multiselect(
 st.session_state.disabled = set(faulty)
 
 st.sidebar.divider()
-if st.sidebar.button("🔄 デフォルト構成にリセット", use_container_width=True):
+if st.sidebar.button("🔄 初期構成にリセット", use_container_width=True):
     st.session_state.G = init_default_graph()
     st.session_state.disabled = set()
     st.session_state.last_path = None
@@ -394,7 +399,7 @@ with tab1:
 
     with col_rt:
         st.subheader("📋 ルーティングテーブル（転送表）")
-        st.markdown("各ルータが保持する「宛先に対して次にどのルータへ渡すか」を記した内部データです。")
+        st.markdown("各ルータが保持する「宛先に対して次にどのルータへ渡すべきか」を記した内部データです。")
         active_nodes = sorted([n for n in G.nodes if n not in st.session_state.disabled])
         if active_nodes:
             selected_r = st.selectbox("観察するルータを選択:", active_nodes, index=0)
@@ -540,7 +545,7 @@ with tab4:
             st.code(repr(active_adj), language="python")
 
         st.success(
-            "💡 **実習解説:** 故障したルータが地図（隣接リスト）からから削除されました。"
+            "💡 **実習解説:** 故障したルータが地図（隣接リスト）から削除されました。"
             "各ルータは新しい隣接リストを元にダイクストラ法を即座に再実行し、自動的に障害区間を迂回して通信を維持します。"
         )
     else:
